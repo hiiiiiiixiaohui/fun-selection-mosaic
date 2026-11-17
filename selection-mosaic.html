@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>选区点阵生成器</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 340px minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      background: #ececec;
+      color: #222;
+      font: 14px/1.5 "Microsoft YaHei", "Segoe UI", sans-serif;
+    }
+    header { grid-column: 1 / -1; padding: 10px 16px 8px; }
+    h1 { margin: 0 0 2px; font-size: 18px; font-weight: 650; }
+    header p { margin: 0; color: #555; font-size: 13px; }
+    .panel {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      align-items: flex-end;
+      align-content: start;
+      overflow: auto;
+      padding: 0 12px 12px 16px;
+    }
+    .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #444; }
+    .field[hidden] { display: none; }
+    textarea, select, input[type="number"] {
+      font: inherit;
+      color: #222;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 4px 6px;
+    }
+    textarea { width: 180px; height: 52px; resize: vertical; }
+    input[type="number"] { width: 72px; }
+    input[type="range"] { width: 110px; }
+    .checks { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #333; padding-bottom: 2px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    button {
+      font: inherit;
+      background: #fff;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    button.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+    #sourcePreview {
+      width: 120px;
+      height: auto;
+      background: #fff;
+      border: 1px solid #ccc;
+      image-rendering: pixelated;
+    }
+    #status { margin: 0; flex-basis: 100%; color: #333; font-size: 12px; }
+    #preview {
+      display: block;
+      width: calc(100% - 12px);
+      height: calc(100% - 12px);
+      min-height: 0;
+      margin: 0 12px 12px 0;
+      border: 1px solid #ccc;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>选区点阵生成器</h1>
+    <p>单图是一张点阵。双图切换时，静置看浅色图，全选后换成深色图。图里藏字时，静置只看封面，全选后隐藏文字变蓝浮出。</p>
+  </header>
+  <div class="panel">
+    <label class="field">模式
+      <select id="mode">
+        <option value="single">单图</option>
+        <option value="swap">双图切换</option>
+        <option value="secret">图里藏字</option>
+      </select>
+    </label>
+    <label class="field" id="textField"><span id="textCaption">文字</span>
+      <textarea id="text" spellcheck="false">显影</textarea>
+    </label>
+    <label class="field" id="lightField" hidden><span>浅色图（静置看到）</span>
+      <textarea id="lightText" spellcheck="false">公鸡</textarea>
+    </label>
+    <label class="field" id="darkField" hidden><span id="darkCaption">深色图（选中后看到）</span>
+      <textarea id="darkText" spellcheck="false">兔子</textarea>
+    </label>
+    <label class="field" id="shapeField">造形
+      <select id="shape">
+        <option value="text">用这段文字</option>
+        <option value="circle">示例圆</option>
+        <option value="image">用上传的图片</option>
+      </select>
+    </label>
+    <label class="field" id="fileField">图片（可拖入、可粘贴）
+      <input id="file" type="file" accept="image/*">
+    </label>
+    <label class="field">格子内容
+      <select id="fill">
+        <option value="block">色块</option>
+        <option value="text">循环铺入上面的文字</option>
+      </select>
+    </label>
+    <label class="field">列数
+      <input id="cols" type="number" min="24" max="120" value="72">
+    </label>
+    <label class="field">对比 <span id="contrastVal">1.2</span>
+      <input id="contrast" type="range" min="0.4" max="3" step="0.1" value="1.2">
+    </label>
+    <label class="field">像素 <span id="cellVal">9</span>
+      <input id="cell" type="range" min="6" max="16" step="1" value="9">
+    </label>
+    <label class="field">放大 <span id="zoomVal">1</span>
+      <input id="zoom" type="range" min="0.3" max="1.6" step="0.05" value="1">
+    </label>
+    <div class="checks">
+      <label><input id="invert" type="checkbox"> 反相</label>
+      <label><input id="dither" type="checkbox" checked> 误差扩散（照片更像点阵）</label>
+      <label><input id="mid" type="checkbox"> 中间调也可被选中</label>
+      <label><input id="colorize" type="checkbox"> 按图片上色</label>
+      <label><input id="lock" type="checkbox"> 保持高亮（预览 Ctrl+A 会点亮的格子）</label>
+    </div>
+    <div class="actions">
+      <button id="gen" class="primary" type="button">生成</button>
+      <button id="sel" type="button">全选显影</button>
+      <button id="save" type="button">下载页面</button>
+      <button id="pop" type="button">新窗口打开</button>
+    </div>
+    <label class="field">采样
+      <canvas id="sourcePreview" width="72" height="36"></canvas>
+    </label>
+    <p id="status"></p>
+  </div>
+  <iframe id="preview" title="点阵预览"></iframe>
+  <script>
+    const textEl = document.getElementById('text');
+    const modeEl = document.getElementById('mode');
+    const lightTextEl = document.getElementById('lightText');
+    const darkTextEl = document.getElementById('darkText');
+    const textField = document.getElementById('textField');
+    const lightField = document.getElementById('lightField');
+    const darkField = document.getElementById('darkField');
+    const shapeField = document.getElementById('shapeField');
+    const fileField = document.getElementById('fileField');
+    const shapeEl = document.getElementById('shape');
+    const fileEl = document.getElementById('file');
+    const fillEl = document.getElementById('fill');
+    const colsEl = document.getElementById('cols');
+    const contrastEl = document.getElementById('contrast');
+    const cellEl = document.getElementById('cell');
+    const zoomEl = document.getElementById('zoom');
+    const invertEl = document.getElementById('invert');
+    const ditherEl = document.getElementById('dither');
+    const midEl = document.getElementById('mid');
+    const colorizeEl = document.getElementById('colorize');
+    const lockEl = document.getElementById('lock');
+    const preview = document.getElementById('preview');
+    const sourcePreview = document.getElementById('sourcePreview');
+    const statusEl = document.getElementById('status');
+
+    let imageUrl = '';
+    let sourceImage = null;
+    let model = null;
+
+    function esc(value) {
+      return value.replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[ch]));
+    }
+
+    function usableChars(value) {
+      const chars = Array.from(value).filter((ch) => !/\s/u.test(ch));
+      return chars.length ? chars : ['█'];
+    }
+
+    function makeTextCanvas(value) {
+      const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const content = lines.length ? lines : ['点阵'];
+      const fontSize = 180;
+      const canvas = document.createElement('canvas');
+      const measure = canvas.getContext('2d');
+      measure.font = `700 ${fontSize}px "Microsoft YaHei", sans-serif`;
+      const maxW = Math.max(...content.map((line) => measure.measureText(line).width));
+      const lineH = fontSize * 1.16;
+      canvas.width = Math.ceil(maxW + fontSize * 0.45);
+      canvas.height = Math.ceil(lineH * content.length + fontSize * 0.36);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#000';
+      ctx.font = `700 ${fontSize}px "Microsoft YaHei", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      content.forEach((line, index) => {
+        ctx.fillText(line, canvas.width / 2, fontSize * 0.22 + lineH * index + lineH / 2);
+      });
+      return canvas;
+    }
+
+    function makeCircleCanvas() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 480;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, 480, 480);
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(240, 240, 188, 0, Math.PI * 2);
+      ctx.fill();
+      return canvas;
+    }
+
+    function rasterize(source, cols, fixedRows) {
+      const sw = source.width || source.naturalWidth;
+      const sh = source.height || source.naturalHeight;
+      let rows = fixedRows || Math.round(cols * sh / sw);
+      rows = Math.max(16, Math.min(140, rows));
+      const canvas = document.createElement('canvas');
+      canvas.width = cols;
+      canvas.height = rows;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, cols, rows);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      const scale = Math.min(cols / sw, rows / sh);
+      const dw = sw * scale;
+      const dh = sh * scale;
+      ctx.drawImage(source, (cols - dw) / 2, (rows - dh) / 2, dw, dh);
+      const pixels = ctx.getImageData(0, 0, cols, rows).data;
+      const gray = new Float32Array(cols * rows);
+      const color = new Uint8ClampedArray(cols * rows * 3);
+      for (let p = 0, i = 0; p < gray.length; p += 1, i += 4) {
+        const alpha = pixels[i + 3] / 255;
+        const r = pixels[i] * alpha + 255 * (1 - alpha);
+        const g = pixels[i + 1] * alpha + 255 * (1 - alpha);
+        const b = pixels[i + 2] * alpha + 255 * (1 - alpha);
+        gray[p] = 1 - (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+        color[p * 3] = r;
+        color[p * 3 + 1] = g;
+        color[p * 3 + 2] = b;
+      }
+      return { gray, color, cols, rows, canvas };
+    }
+
+    function quantize(sampled) {
+      const { gray, cols, rows } = sampled;
+      const contrast = Number(contrastEl.value);
+      const invert = invertEl.checked;
+      const useDither = ditherEl.checked;
+      const steps = 3;
+      const buf = new Float32Array(gray.length);
+      for (let i = 0; i < gray.length; i += 1) {
+        let value = invert ? 1 - gray[i] : gray[i];
+        value = (value - 0.5) * contrast + 0.5;
+        buf[i] = value;
+      }
+      const levels = new Uint8Array(gray.length);
+      for (let y = 0; y < rows; y += 1) {
+        const leftToRight = y % 2 === 0;
+        for (let xi = 0; xi < cols; xi += 1) {
+          const x = leftToRight ? xi : cols - 1 - xi;
+          const index = y * cols + x;
+          const old = buf[index];
+          const clamped = old < 0 ? 0 : (old > 1 ? 1 : old);
+          const level = Math.round(clamped * steps);
+          levels[index] = level;
+          if (!useDither) continue;
+          const error = old - level / steps;
+          const dir = leftToRight ? 1 : -1;
+          if (x + dir >= 0 && x + dir < cols) buf[index + dir] += error * 7 / 16;
+          if (y + 1 < rows) {
+            buf[index + cols] += error * 5 / 16;
+            if (x + dir >= 0 && x + dir < cols) buf[index + cols + dir] += error * 1 / 16;
+            if (x - dir >= 0 && x - dir < cols) buf[index + cols - dir] += error * 3 / 16;
+          }
+        }
+      }
+      return levels;
+    }
+
+    function buildSheet(sampled, levels) {
+      const fill = fillEl.value;
+      const colorize = colorizeEl.checked && shapeEl.value === 'image';
+      const mid = midEl.checked;
+      const chars = usableChars(textEl.value);
+      let cursor = 0;
+      const stats = { label: 0, none: 0, disabled: 0, empty: 0 };
+      const rowsHtml = [];
+      for (let y = 0; y < sampled.rows; y += 1) {
+        let row = '<div class="row">';
+        for (let x = 0; x < sampled.cols; x += 1) {
+          const index = y * sampled.cols + x;
+          const level = levels[index];
+          if (level === 0) {
+            stats.empty += 1;
+            row += '<div class="slot"></div>';
+            continue;
+          }
+          const glyph = fill === 'block' ? '█' : chars[cursor++ % chars.length];
+          const width = level === 1 ? 42 : (level === 2 ? 72 : 100);
+          let style = `width:${width}%`;
+          if (colorize) {
+            const o = index * 3;
+            style += `;color:rgb(${sampled.color[o]},${sampled.color[o + 1]},${sampled.color[o + 2]})`;
+          }
+          const encoded = esc(glyph);
+          if (level === 3 || (level === 2 && mid)) {
+            stats.label += 1;
+            row += `<div class="slot"><label class="ink pick lv${level}" style="${style}">${encoded}</label></div>`;
+          } else if (level === 2) {
+            stats.none += 1;
+            row += `<div class="slot"><span class="ink none lv2" style="${style}">${encoded}</span></div>`;
+          } else {
+            stats.disabled += 1;
+            row += `<div class="slot"><input class="ink lv1" disabled tabindex="-1" autocomplete="off" size="1" value="${encoded}" style="${style}"></div>`;
+          }
+        }
+        row += '</div>';
+        rowsHtml.push(row);
+      }
+      return { html: rowsHtml.join(''), stats, fill };
+    }
+
+    function buildPage(sheet) {
+      const cell = Number(cellEl.value);
+      const title = (textEl.value.trim().split(/\r?\n/)[0] || lightTextEl.value.trim() || '点阵').slice(0, 40);
+      const hint = sheet.hint || '退后看整页。点页面后按 Ctrl+A：标签高亮，禁用输入和禁止选择的文字保持原样。';
+      const mode = sheet.mode || 'single';
+      return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${esc(title)}</title>
+  <style>
+    :root { color-scheme: light; --cell: ${cell}px; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #fff; color: #222; }
+    body { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; }
+    .bar, .bar button {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .bar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 8px 12px;
+      color: #666;
+      font-size: 12px;
+      background: #fafafa;
+      border-bottom: 1px solid #eee;
+    }
+    .bar button {
+      font: inherit;
+      border: 1px solid #ccc;
+      background: #fff;
+      border-radius: 4px;
+      padding: 3px 8px;
+      cursor: pointer;
+    }
+    .sheet { padding: 18px; }
+    .row { display: flex; height: var(--cell); }
+    .slot {
+      position: relative;
+      width: var(--cell);
+      height: var(--cell);
+      flex: 0 0 var(--cell);
+      overflow: hidden;
+    }
+    .ink {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 100%;
+      overflow: hidden;
+      white-space: nowrap;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      font-weight: 700;
+      font-size: calc(var(--cell) * 1.7);
+      line-height: var(--cell);
+      letter-spacing: -0.14em;
+      font-family: "Segoe UI Symbol", "Segoe UI", sans-serif;
+    }
+    body[data-fill="text"] .ink {
+      font-family: "Microsoft YaHei", sans-serif;
+      font-size: calc(var(--cell) * 1.05);
+      letter-spacing: 0;
+    }
+    body[data-fill="block"] .ink:not(.secret) {
+      background: currentColor;
+    }
+    .ghost { user-select: none; -webkit-user-select: none; }
+    .secret {
+      color: var(--ink, #fff);
+      -webkit-text-fill-color: var(--ink, #fff);
+      background: transparent;
+    }
+    body[data-mode="swap"] .sheet.lock .ghost { visibility: hidden; }
+    .lv1 { color: #c4c4c4; }
+    .lv2 { color: #7a7a7a; }
+    .lv3 { color: #161616; }
+    .none { user-select: none; -webkit-user-select: none; }
+    .pick { user-select: text; -webkit-user-select: text; }
+    .pick::selection {
+      background: #1a73e8;
+      color: #1a73e8;
+    }
+    input.ink {
+      appearance: none;
+      opacity: 1;
+      min-width: 0;
+      outline: none;
+      pointer-events: none;
+      -webkit-text-fill-color: currentColor;
+    }
+    .sheet.lock .pick,
+    .sheet.lock .secret {
+      background: #1a73e8;
+      color: #1a73e8;
+      -webkit-text-fill-color: #1a73e8;
+    }
+  </style>
+</head>
+<body data-fill="${sheet.fill}" data-mode="${mode}">
+  <div class="bar">
+    <span>${esc(hint)}</span>
+    <button id="sel" type="button">全选</button>
+    <button id="lock" type="button">保持高亮</button>
+  </div>
+  <div class="sheet">${sheet.html}</div>
+  <script>
+    const sheet = document.querySelector('.sheet');
+    const selectSheet = () => {
+      const range = document.createRange();
+      range.selectNodeContents(sheet);
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    };
+    window.syncLock = () => {
+      const view = document.body.dataset.mode || 'single';
+      const hold = sheet.dataset.hold === '1';
+      const selected = String(getSelection() || '').replace(/\\s/g, '').length > 0;
+      sheet.classList.toggle('lock', view === 'single' ? hold : (hold || selected));
+    };
+    document.addEventListener('selectionchange', () => window.syncLock());
+    document.getElementById('sel').addEventListener('mousedown', (event) => event.preventDefault());
+    document.getElementById('sel').addEventListener('click', selectSheet);
+    document.getElementById('lock').addEventListener('click', () => {
+      sheet.dataset.hold = sheet.dataset.hold === '1' ? '0' : '1';
+      window.syncLock();
+    });
+  <\/script>
+</body>
+</html>`;
+    }
+
+    function inkValue(gray, index) {
+      let value = invertEl.checked ? 1 - gray[index] : gray[index];
+      value = (value - 0.5) * Number(contrastEl.value) + 0.5;
+      return value;
+    }
+
+    function nextGlyph(fill, chars, cursor) {
+      if (fill === 'block') return '█';
+      const glyph = chars[cursor.n % chars.length];
+      cursor.n += 1;
+      return glyph;
+    }
+
+    function slotOpen() {
+      return '<div class="slot">';
+    }
+
+    function inputInk(cls, glyph, style) {
+      return `<input class="${cls}" disabled tabindex="-1" autocomplete="off" size="1" value="${esc(glyph)}" style="${style}">`;
+    }
+
+    function textInk(tag, cls, glyph, style) {
+      return `<${tag} class="${cls}" style="${style}">${esc(glyph)}</${tag}>`;
+    }
+
+    function buildSwap(light, dark) {
+      const fill = fillEl.value;
+      const lightChars = usableChars(lightTextEl.value);
+      const darkChars = usableChars(darkTextEl.value);
+      const lightCursor = { n: 0 };
+      const darkCursor = { n: 0 };
+      const tone = '#8a8a8a';
+      const stats = { label: 0, none: 0, disabled: 0, empty: 0 };
+      const rowsHtml = [];
+      for (let y = 0; y < light.rows; y += 1) {
+        let row = '<div class="row">';
+        for (let x = 0; x < light.cols; x += 1) {
+          const index = y * light.cols + x;
+          const lightOn = inkValue(light.gray, index) >= 0.34;
+          const darkOn = inkValue(dark.gray, index) >= 0.34;
+          if (!lightOn && !darkOn) {
+            stats.empty += 1;
+            row += '<div class="slot"></div>';
+            continue;
+          }
+          row += slotOpen();
+          if (lightOn) {
+            stats.disabled += 1;
+            row += inputInk('ink ghost', nextGlyph(fill, lightChars, lightCursor), `width:100%;color:${tone}`);
+          }
+          if (darkOn) {
+            stats.label += 1;
+            const ink = lightOn ? tone : '#ffffff';
+            row += textInk('label', 'ink pick secret', nextGlyph(fill, darkChars, darkCursor), `width:100%;--ink:${ink}`);
+          }
+          row += '</div>';
+        }
+        row += '</div>';
+        rowsHtml.push(row);
+      }
+      return {
+        html: rowsHtml.join(''),
+        stats,
+        fill,
+        mode: 'swap',
+        hint: '静置看到浅色图。在预览里按 Ctrl+A 会换成深色图，点空白处回到浅色图。勾选「保持高亮」可以把深色图留住。',
+      };
+    }
+
+    function buildSecret(sampled, levels, secret) {
+      const fill = fillEl.value;
+      const coverChars = usableChars(textEl.value);
+      const secretChars = usableChars(darkTextEl.value);
+      const coverCursor = { n: 0 };
+      const secretCursor = { n: 0 };
+      const coverColor = { 1: '#c4c4c4', 2: '#7a7a7a', 3: '#161616' };
+      const stats = { label: 0, none: 0, disabled: 0, empty: 0 };
+      const rowsHtml = [];
+      for (let y = 0; y < sampled.rows; y += 1) {
+        let row = '<div class="row">';
+        for (let x = 0; x < sampled.cols; x += 1) {
+          const index = y * sampled.cols + x;
+          const level = levels[index];
+          const hidden = inkValue(secret.gray, index) >= 0.34;
+          if (level === 0 && !hidden) {
+            stats.empty += 1;
+            row += '<div class="slot"></div>';
+            continue;
+          }
+          row += slotOpen();
+          if (level > 0) {
+            const width = level === 1 ? 42 : (level === 2 ? 72 : 100);
+            const glyph = nextGlyph(fill, coverChars, coverCursor);
+            if (level === 1) {
+              stats.disabled += 1;
+              row += inputInk('ink ghost lv1', glyph, `width:${width}%`);
+            } else {
+              stats.none += 1;
+              row += textInk('span', `ink ghost none lv${level}`, glyph, `width:${width}%`);
+            }
+          }
+          if (hidden) {
+            stats.label += 1;
+            const ink = level > 0 ? coverColor[level] : '#ffffff';
+            row += textInk('label', 'ink pick secret', nextGlyph('block', secretChars, secretCursor), `width:100%;--ink:${ink}`);
+          }
+          row += '</div>';
+        }
+        row += '</div>';
+        rowsHtml.push(row);
+      }
+      return {
+        html: rowsHtml.join(''),
+        stats,
+        fill,
+        mode: 'secret',
+        hint: '静置只看到封面。在预览里按 Ctrl+A，藏着的文字会变蓝浮出来。点空白处可以把它藏回去。',
+      };
+    }
+
+    function paintSource(canvas) {
+      sourcePreview.width = canvas.width;
+      sourcePreview.height = canvas.height;
+      sourcePreview.getContext('2d').drawImage(canvas, 0, 0);
+    }
+
+    function applyView() {
+      const doc = preview.contentDocument;
+      if (!doc || !doc.documentElement || !doc.body) return;
+      doc.documentElement.style.setProperty('--cell', `${Number(cellEl.value)}px`);
+      const sheet = doc.querySelector('.sheet');
+      if (sheet) {
+        sheet.dataset.hold = lockEl.checked ? '1' : '0';
+        const win = doc.defaultView;
+        if (win && typeof win.syncLock === 'function') win.syncLock();
+        else sheet.classList.toggle('lock', lockEl.checked);
+      }
+      doc.body.style.zoom = '1';
+      const naturalW = sheet ? sheet.scrollWidth : preview.clientWidth;
+      const naturalH = sheet ? sheet.scrollHeight : preview.clientHeight;
+      const fitW = naturalW > 0 ? (preview.clientWidth - 8) / naturalW : 1;
+      const fitH = naturalH > 0 ? (preview.clientHeight - 46) / naturalH : 1;
+      const fit = Math.max(0.2, Math.min(fitW, fitH));
+      doc.body.style.zoom = String(Math.max(0.2, fit * Number(zoomEl.value)));
+    }
+
+    function currentPage() {
+      return model ? buildPage(model) : '';
+    }
+
+    function generate() {
+      statusEl.textContent = '正在铺点阵…';
+      window.setTimeout(() => {
+        try {
+          const shape = shapeEl.value;
+          if (modeEl.value !== 'swap' && shape === 'image' && !sourceImage) {
+            statusEl.textContent = '请先上传、拖入或粘贴一张图片。';
+            return;
+          }
+          const cols = Math.max(24, Math.min(120, Number(colsEl.value) || 72));
+          colsEl.value = String(cols);
+          const mode = modeEl.value;
+          let sheet;
+          let sampled;
+          if (mode === 'swap') {
+            const lightCanvas = makeTextCanvas(lightTextEl.value);
+            const darkCanvas = makeTextCanvas(darkTextEl.value);
+            const rows = Math.max(
+              16,
+              Math.min(140, Math.round(cols * Math.max(
+                lightCanvas.height / lightCanvas.width,
+                darkCanvas.height / darkCanvas.width,
+              ))),
+            );
+            const light = rasterize(lightCanvas, cols, rows);
+            const dark = rasterize(darkCanvas, cols, rows);
+            sheet = buildSwap(light, dark);
+            sampled = light;
+          } else if (mode === 'secret') {
+            if (shape === 'image' && !sourceImage) {
+              statusEl.textContent = '请先上传、拖入或粘贴一张图片。';
+              return;
+            }
+            const source = shape === 'circle'
+              ? makeCircleCanvas()
+              : (shape === 'image' ? sourceImage : makeTextCanvas(textEl.value));
+            sampled = rasterize(source, cols);
+            const hidden = rasterize(makeTextCanvas(darkTextEl.value), cols, sampled.rows);
+            sheet = buildSecret(sampled, quantize(sampled), hidden);
+          } else {
+            const source = shape === 'circle'
+              ? makeCircleCanvas()
+              : (shape === 'image' ? sourceImage : makeTextCanvas(textEl.value));
+            sampled = rasterize(source, cols);
+            const levels = quantize(sampled);
+            sheet = { ...buildSheet(sampled, levels), mode: 'single' };
+          }
+          model = { ...sheet, cols: sampled.cols, rows: sampled.rows };
+          paintSource(sampled.canvas);
+          preview.srcdoc = currentPage();
+          statusEl.textContent = `${sampled.cols}×${sampled.rows}。可选标签 ${sheet.stats.label}，禁止选择 ${sheet.stats.none}，禁用 ${sheet.stats.disabled}，空白 ${sheet.stats.empty}。${sheet.hint || '点进预览后按 Ctrl+A。'}`;
+        } catch (error) {
+          statusEl.textContent = `生成失败：${error.message}`;
+        }
+      }, 30);
+    }
+
+    function downloadPage() {
+      const html = currentPage();
+      if (!html) return;
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'selection-mosaic.html';
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    }
+
+    function openPage() {
+      const html = currentPage();
+      if (!html) return;
+      const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+      window.open(url, '_blank');
+    }
+
+    function selectPreview() {
+      const doc = preview.contentDocument;
+      const win = preview.contentWindow;
+      if (!doc || !win) return;
+      const sheet = doc.querySelector('.sheet');
+      if (!sheet) return;
+      const range = doc.createRange();
+      range.selectNodeContents(sheet);
+      const selection = win.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      win.focus();
+    }
+
+    function loadImageFile(file) {
+      if (!file || !file.type.startsWith('image/')) return;
+      if (imageUrl) URL.revokeObjectURL(imageUrl);
+      imageUrl = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => {
+        sourceImage = image;
+        shapeEl.value = 'image';
+        generate();
+      };
+      image.alt = '';
+      image.src = imageUrl;
+    }
+
+    contrastEl.addEventListener('input', () => {
+      document.getElementById('contrastVal').textContent = contrastEl.value;
+    });
+    cellEl.addEventListener('input', () => {
+      document.getElementById('cellVal').textContent = cellEl.value;
+      applyView();
+    });
+    zoomEl.addEventListener('input', () => {
+      document.getElementById('zoomVal').textContent = zoomEl.value;
+      applyView();
+    });
+    lockEl.addEventListener('change', applyView);
+    preview.addEventListener('load', applyView);
+
+    document.getElementById('gen').addEventListener('click', generate);
+    document.getElementById('save').addEventListener('click', downloadPage);
+    document.getElementById('pop').addEventListener('click', openPage);
+    document.getElementById('sel').addEventListener('mousedown', (event) => event.preventDefault());
+    document.getElementById('sel').addEventListener('click', selectPreview);
+    function syncModeFields() {
+      const mode = modeEl.value;
+      textField.hidden = mode === 'swap';
+      lightField.hidden = mode !== 'swap';
+      darkField.hidden = mode === 'single';
+      shapeField.hidden = mode === 'swap';
+      fileField.hidden = mode === 'swap';
+      document.getElementById('textCaption').textContent = mode === 'secret' ? '封面' : '文字';
+      document.getElementById('darkCaption').textContent = mode === 'secret'
+        ? '隐藏文字（选中后凸显）'
+        : '深色图（选中后看到）';
+    }
+
+    modeEl.addEventListener('change', () => {
+      syncModeFields();
+      generate();
+    });
+    shapeEl.addEventListener('change', generate);
+    fillEl.addEventListener('change', generate);
+    ditherEl.addEventListener('change', generate);
+    invertEl.addEventListener('change', generate);
+    midEl.addEventListener('change', generate);
+    colorizeEl.addEventListener('change', generate);
+    colsEl.addEventListener('change', generate);
+    contrastEl.addEventListener('change', generate);
+    fileEl.addEventListener('change', () => {
+      const file = fileEl.files && fileEl.files[0];
+      if (file) loadImageFile(file);
+    });
+    document.addEventListener('paste', (event) => {
+      const items = event.clipboardData && event.clipboardData.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          event.preventDefault();
+          loadImageFile(item.getAsFile());
+          return;
+        }
+      }
+    });
+    document.addEventListener('dragover', (event) => event.preventDefault());
+    document.addEventListener('drop', (event) => {
+      event.preventDefault();
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) loadImageFile(file);
+    });
+
+    generate();
+  </script>
+</body>
+</html>
